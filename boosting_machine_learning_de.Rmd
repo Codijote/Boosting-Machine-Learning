@@ -1,0 +1,235 @@
+---
+title: "Boosting Machine Learning"
+author: "Daniel Navarro"
+date: "2025-08-15"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries load, include=FALSE, warning=FALSE, echo=FALSE}
+library(data.table)
+library(dplyr)
+library(DT)
+library(gbm)
+library(ggplot2)
+library(glmnet)
+library(RColorBrewer)
+```
+
+
+
+```{r Functions, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
+
+parameter_correlation_graph <- function(parameter,
+                                        parameter_name,
+                                        text_x,
+                                        text_y) {
+cor <- round(cor(data_prediction$Likes, parameter, method = 'pearson'), 4)
+
+bottom_7 <- data_prediction |>
+  arrange(data_prediction$parameter) |> head(7)
+top_7 <- data_prediction |> 
+  arrange(desc(data_prediction$parameter)) |> head(7)
+
+data_prediction |> ggplot(aes(parameter, Likes, color = parameter)) +
+  geom_point(alpha = 0.7) +
+  theme_light() +
+  stat_smooth(color = 'wheat') +
+  annotate('text', label = paste('Korrelation = ',cor), x = text_x, y = text_y) +
+  scale_color_viridis_b(name = parameter_name, direction = -1) +
+  xlab(parameter_name)
+}
+```
+
+
+```{r Data load, include=FALSE}
+data <- read.csv('data/Spotify Youtube Dataset.csv') |> na.omit()
+data <- data[ , -c(1, 3, 4, 5, 6, 7, 19, 20, 21, 24, 25, 28)]
+data_prediction <- as.data.table(data[ , -c(1)])
+data_prediction$Key <- as.factor(data_prediction$Key) #|> as.numeric()
+data_prediction$Licensed <- as.factor(data_prediction$Licensed) #|> as.numeric()
+data_prediction$official_video <- as.factor(data_prediction$official_video) #|> as.numeric()
+```
+
+
+# Abstrakt
+
+Boosting is eine beliebte Modellierungsmethode, die darin besteht, wiederholt über vorherige Modelle zu laufen, um die Leistun zu verbessern. In diesem Fall weden wir die Leistung des Tree Boosting auf Kaggle <https://www.kaggle.com/datasets/rohitgrewal/spotify-youtube-data?resource=download> überprüfen.
+
+Wie auf der Datenwebseite beschrieben: 'This dataset shows how popular songs perform on both Spotify and YouTube. It includes useful details about each song, like its name, artist, how many times it was played on Spotify, how many views it got on YouTube, and several audio features like danceability, energy, loudness, and tempo.'
+
+Die Daten sind nicht real, erweisen sich als inkonsistent und ihre Quelle ist in Kaggle nicht detailliert angegeben. Dennoch ist es ein Datensatz, der nützlich für den Test eines Boosting-Modells ist. DieErgebnisse sollten nich außerhalg des Gelturngsbereichs dieser Daten betrachtet werden.
+
+Die Durchführung einer Lasso linearen Regression liefert ein einfaches Modeel mit einem niedrigen mittleren quadratischen Abweichung (MSE). Nach der Auswahl des besten Lambda für optimale Ergebnisse hilft es, Variablen hearauszunehmen, die für die Vorhersage der gewünschten Output-Variable, Likes, nicht nützlich sind.
+
+Die Verbesserung eines Regressionsbaums, wobei alle Variablen beibehalten werden, die das Modell etwas komplexer mache, führte zu einer Verbesserung von 43% reduzierung des MSE.
+
+In den folgenden Teilen werden wir uns mehr auf die Analyse und die Ergebnisse als auf den Code konzentrieren, daher wird der Code im Dokument nicht gezeigt.
+
+# Explorative Datenanalyse
+
+Dies ist die Beschreibung der Hauptmerkmale/Spalten, die im Datensatz verfügbar sind:
+
+    Track: Der Name des Liedes
+    Artist: Die Person oder Band, die das Lied aufgeführt hat
+    Stream: Total number of times the song was streamed on Spotify
+    Youtube Views: Gesamtanzahl der Male, die das Lied auf Spotify gestreamt wurde
+    Danceability: Punktzahl, die zeigt, wir geeignet der Track zum Tanzen ist (0 to 1)
+    Energy: Punktzahl, die repräsentiert, wie energetisch oder intensiv das Lied ist (0 to 1)
+    Key: Der Musikalische Schlüssel des Tracks (number from 0 to 11)
+    Loudness: Die Laustärke des Liedes in Dezibel (dB)
+    Speechiness: Es wird erzählt, wie viele gesprochene Worte im Stück enthalten sind
+    Acousticness: Sagt, ob der Track haptsächlich akustisch ist oder nicht
+    Instrumentalness: Sagt voraus, ob das Lied keine Vocals hat
+    Liveness: Gibt an, ob das Lied vor einem Live-Publikum aufgenommen wurde
+    Valence: Misst, wir glücklich oder positiv das Lied klingt
+    Tempo: Die Geschwindigkeit des Songs in Schlägen pro Minute (BPM)
+    Duration_ms: Länge der Strecke in Millisekunden
+    Year: Das Jahr, in dem das Lied veröffentlicht wurde
+
+## Korrelationstest zwischen Likes und anderen Parametern
+
+### Danceability
+```{r Graph Danceability Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Danceability, 'Danceability', 0.25, 3e7)
+```
+
+### Energy
+
+```{r Graph Energy Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Energy, 'Energy', 0.25, 3e7)
+```
+### Loudness
+
+```{r Graph Loudness Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Loudness, 'Energy', -30, 3e7)
+```
+### Speechiness
+
+```{r Graph Speechiness Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Speechiness, 'Speechiness', 0.5, 3e7)
+```
+### Acousticness
+
+```{r Graph Acousticness Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Acousticness, 'Acousticness', 0.25, 3e7)
+```
+
+### Instrumentalness
+
+```{r Graph Instrumentalness Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Instrumentalness, 'Instrumentalness', 0.25, 3e7)
+```
+
+### Liveness
+
+```{r Graph Liveness Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Liveness, 'Liveness', 0.25, 3e7)
+```
+
+### Valence
+
+```{r Graph Valence Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Valence, 'Valence', 0.25, 3e7)
+```
+
+### Tempo
+
+```{r Graph Tempo Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Tempo, 'Tempo', 50, 3e7)
+```
+
+### Duration ms
+
+```{r Graph Duration ms Correlation, echo=FALSE, warning=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Duration_ms, 'Duration ms', 1e6, 3e7)
+```
+
+### Views
+
+```{r Graph Views Correlation, echo=FALSE, warning=FALSE, message=FALSE, message=FALSE}
+parameter_correlation_graph(data_prediction$Views, 'Views', 1e+9, 4e7)
+```
+
+
+
+# Modelierung. Lineare Regression und Boosting
+
+## Ziel
+
+Das Ziel ist es, die Anzahl der Likes vorherzusagen, die ein Sohn basierend auf Parametern wie tone, duration, loudness, danceability, views etc, erhalten kann.
+
+## Lineare Regression. Lasso.
+
+```{r data preparation for Lasso, include=FALSE}
+
+
+x <- model.matrix(Likes ~ ., data_prediction)[ , -13]
+y <- data_prediction[ , 13]
+
+grid <- 10^seq(10, -2, length = 100)
+```
+
+```{r Lasso modelling, include=FALSE}
+set.seed(2048)
+
+x <- model.matrix(Likes ~ ., data_prediction)[, -13]
+y <- data_prediction$Likes
+
+train <- sample(c(TRUE, FALSE), nrow(data_prediction), replace = TRUE)
+test <- !train
+
+grid <- 10^seq(10, -2, length = 100)
+
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 1)
+bestlam <- cv.out$lambda.min
+
+lasso.mod <- glmnet(x[train, ], y[train], alpha = 1,
+                    lambda = grid)
+
+lasso.pred <- predict(lasso.mod, s = bestlam,
+                      newx = x[test, ])
+sme_lasso <- mean((lasso.pred - y[test])^2) # 713.449.467.861
+
+out <- glmnet(x, y, alpha = 1, lambda = grid)
+lasso.coef <- predict(out, type = 'coefficients',
+                      s = bestlam)[1:25, ]
+```
+
+Ein Lasso-Regressionsmodell ergibt einen Mittleren Quadratischen Fehler (MSE) `r sme_lasso` und, wir unten zu sehen ist, fallen 5 der 25 Koeffizienten weg, da sie weniger wichtig sind, um die Anzahl der Likes zu erklären, die ein Lied erhält.
+
+```{r Lasso coeficients, echo=FALSE}
+datatable(as.matrix(lasso.coef), 
+          colnames = c('Parameter', 'Value'))
+```
+## Boosting Regressionsbaum
+
+
+```{r Boosting, include=FALSE, cache=TRUE}
+data_prediction$Key <- as.factor(data_prediction$Key) |> as.numeric()
+data_prediction$Licensed <- as.factor(data_prediction$Licensed) |> as.numeric()
+data_prediction$official_video <- as.factor(data_prediction$official_video) |> as.numeric()
+
+boost.data <- gbm(Likes ~ ., data = data_prediction[train, ],
+                  distribution = 'gaussian', n.trees = 5000,
+                  interaction.depth = 4)
+
+summary(boost.data)
+
+yhat.boost <- predict(boost.data,
+                      newdata = data[-train], n.trees = 5000)
+sme_boosting <- mean((yhat.boost - y) ^ 2) # 421.960.693.392
+```
+
+Das Verbessern eines Regressionsbaums, der über dis Linearität hinausgeht, finde eine andere Gruppe veon Parametererklärungen rür die Zielvariable (Likes), aber auch einen signifikant niedrigeren SME von, `r sme_boosting`, was `r sme_boosting / sme_lasso` entspricht oder etwa 43% Reduktion im SME mit den folgenden Variablenwerten.
+
+```{r Boosting parameters}
+datatable(as.matrix(summary(boost.data)))
+```
